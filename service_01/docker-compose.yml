@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+
+  identity-db:
+    image: postgres:16-alpine
+    container_name: calio-identity-db
+    environment:
+      POSTGRES_DB: calio_identity_db
+      POSTGRES_USER: calio_user
+      POSTGRES_PASSWORD: calio_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - identity_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calio_user -d calio_identity_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - calio-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: calio-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: calio
+      RABBITMQ_DEFAULT_PASS: calio123
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    networks:
+      - calio-network
+
+  identity-service:
+    build: .
+    container_name: calio-identity-service
+    environment:
+      DB_HOST: identity-db
+      DB_PORT: 5432
+      DB_NAME: calio_identity_db
+      DB_USER: calio_user
+      DB_PASSWORD: calio_pass
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: calio
+      RABBITMQ_PASSWORD: calio123
+      JWT_SECRET: ${JWT_SECRET:-cali0-super-secret-key-for-jwt-signing-256bits!!}
+    ports:
+      - "8081:8081"
+    depends_on:
+      identity-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - calio-network
+    restart: unless-stopped
+
+volumes:
+  identity_db_data:
+  rabbitmq_data:
+
+networks:
+  calio-network:
+    name: calio-network
+    driver: bridge
